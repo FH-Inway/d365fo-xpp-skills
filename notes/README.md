@@ -2,6 +2,9 @@
 
 General notes and background material on D365FO development with Claude: ideas, research, drafts, and links. They aren't necessarily about the plugin.
 
+- [d365mcp-proxy](d365mcp-proxy/README.md): local proxy that gives Claude Code access to the D365 ERP MCP server of a cloud environment with an app-only (client credentials) Entra app.
+- [d365mcp-local-vhd](d365mcp-local-vhd/README.md): enable the built-in D365 ERP MCP server (`/mcp`) on a local VHD (AOS in IIS) and call it from Claude through the signed-in browser session, without an Entra app.
+
 This folder isn't part of the `trud-d365fo-xpp` plugin:
 
 - **Not installed.** People who install the plugin get only `plugins/trud-d365fo-xpp/`.
