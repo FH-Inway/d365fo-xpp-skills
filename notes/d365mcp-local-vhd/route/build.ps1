@@ -1,19 +1,25 @@
 <#
-Enables the D365 ERP MCP server (/mcp) on an IIS-hosted onebox / VHD AOS. See ../README.md.
+Enables the D365 ERP MCP server (/mcp) on an IIS-hosted AOS (onebox / VHD or cloud-hosted Tier1). See ../README.md.
 
   build.ps1            compile DEVMcpRoute.dll only (no changes to the AOS)
   build.ps1 -Status    show what is installed and the last log lines (read-only)
   build.ps1 -Deploy    compile, stop IIS, copy the DLL to webroot\bin\Controllers, add the web.config handler
                        mapping, create the MCP performance counters, start IIS
   build.ps1 -Remove    stop IIS, delete the DLL, remove the web.config mapping, start IIS
-  -Webroot <path>      AOS webroot (default C:\AOSService\webroot)
+  -Webroot <path>      AOS webroot (default: the first of C:, J:, K:\AOSService\webroot that has an AOS)
 
 -Deploy and -Remove need an elevated PowerShell. A one-time backup of web.config is kept as
 web.config.DEVMcpBridge.bak. A platform update replaces the webroot, so run -Deploy again after updates.
 #>
-param([switch]$Deploy, [switch]$Remove, [switch]$Status, [string]$Webroot = 'C:\AOSService\webroot')
+param([switch]$Deploy, [switch]$Remove, [switch]$Status, [string]$Webroot)
 
 $ErrorActionPreference = 'Stop'
+# A onebox has the webroot on C:, a cloud-hosted Tier1 (CHE) on J: or K:.
+if (-not $Webroot) {
+    $Webroot = 'C', 'J', 'K' | ForEach-Object { "${_}:\AOSService\webroot" } |
+        Where-Object { Test-Path "$_\bin\Microsoft.Dynamics.AX.Framework.Services.Platform.dll" } | Select-Object -First 1
+    if (-not $Webroot) { throw 'AOS not found in C:, J: or K:\AOSService\webroot. Pass -Webroot.' }
+}
 $bin = Join-Path $Webroot 'bin'
 $webConfig = Join-Path $Webroot 'web.config'
 $target = Join-Path $bin 'Controllers\DEVMcpRoute.dll'

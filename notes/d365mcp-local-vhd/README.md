@@ -61,7 +61,8 @@ Entra ID.
 
 ## 3. Requirements
 
-- A onebox / VHD with the AOS in IIS (`C:\AOSService\webroot`). Tested on platform `7.0.8199.55`
+- A onebox / VHD or a cloud-hosted Tier1 (CHE) with the AOS in IIS. `build.ps1` finds the webroot in
+  `C:`, `J:` or `K:\AOSService\webroot`; pass `-Webroot` otherwise. Tested on platform `7.0.8199.55`
   (ApplicationSuite `10.40.3825`). `build.ps1` stops with a clear message if the platform has no MCP server.
 - Feature management: **Dynamics 365 ERP Model Context Protocol server** enabled (it is by default). If it is
   off, `/mcp` returns 403.
@@ -99,7 +100,7 @@ Entra ID.
    powershell -ExecutionPolicy Bypass -File C:\Temp\d365mcp-local-vhd\route\build.ps1 -Deploy
    ```
 
-   **Claude Code in auto mode** refuses to change the AOS webroot and `web.config` itself (the safety
+   **Claude Code in auto mode** may refuse to change the AOS webroot and `web.config` itself (the safety
    classifier treats it as a new remote surface). In that case give the user the command above and let them
    run it in an elevated terminal. Don't look for a way around the refusal.
 
@@ -144,6 +145,15 @@ Things to know:
 - After an `iisreset` the MCP session is gone (404); `__mcp.call` starts a new one and retries once.
 - If a call is cut off by the 45 s limit, the server still finishes it. Check the IIS log
   (`C:\inetpub\logs\LogFiles\W3SVC*\u_ex*.log`, field `time-taken`).
+
+**On a CHE, use a bearer token instead.** A CHE host (`*.axcloud.dynamics.com`) is a real Entra resource, so after
+`build.ps1 -Deploy` its `/mcp` also accepts an Azure CLI token
+(`az account get-access-token --resource https://<env>.axcloud.dynamics.com`; scope `user_impersonation` is enough).
+Claude Code can then use it as a normal stdio MCP server, without Chrome or the 45 s limit, through a token proxy
+such as [claude-code-d365fo-mcp](https://github.com/axpolik/claude-code-d365fo-mcp) (`D365_MCP_URL` =
+`https://<env>/mcp`, `D365_RESOURCE` = `https://<env>`). Tested with the Azure CLI app
+`04b07795-8ddb-461a-bbee-02f9e1bf7b46` in **System administration > Setup > Allowed MCP clients**; not tested
+without it. The same proxy works for cloud sandboxes, where that row is required (403 without it).
 
 ## 6. Deep links
 
@@ -213,7 +223,7 @@ response with status >= 400, including the real error text, to `DEVMcpRoute.log`
 | `opaqueredirect` / "Not signed in" | The browser session expired: sign in to D365 again in that Chrome |
 | `Copy-Item ... being used by another process` | Old script version: IIS must be stopped before the DLL is replaced (current `build.ps1` does this) |
 | A call never returns within 45 s | First OData model build after an AOS restart: use `__mcp.start` / `__mcp.wait` |
-| Everything stopped working after a platform update | The update replaced the webroot and `web.config`: run `build.ps1 -Deploy` again |
+| Everything stopped working after a platform update, or after `web.config` was replaced (e.g. to point the AOS at another database) | The `DEV-MCP` mapping is gone: run `build.ps1 -Deploy` again |
 
 ## 9. Uninstall
 
@@ -226,7 +236,8 @@ counter category stays; it is harmless.
 
 ## 10. Notes on scope
 
-- This is for **development VHDs**. Cloud environments already host `/mcp`; use the supported sign-in there.
+- This is for **development VHDs and CHEs**. Cloud sandboxes already host `/mcp` but only accept bearer
+  tokens (`mcp-helper.js` gets 401 there); use a token proxy as in section 5.
 - `build.ps1` changes nothing about authentication: no anonymous access, no CORS changes, no token
   settings.
 - Don't relay the browser session to other local programs (a localhost "bridge" or proxy that sends
