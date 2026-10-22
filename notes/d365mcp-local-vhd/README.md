@@ -12,6 +12,7 @@ This page is written so that Claude on a new VHD can follow it: point Claude at 
 | [`route/DEVMcpRouteConfigurator.cs`](route/DEVMcpRouteConfigurator.cs) | Small add-in for the AOS web app that maps the `/mcp` route in IIS |
 | [`route/build.ps1`](route/build.ps1) | Compiles the add-in, deploys it (DLL + `web.config` mapping + performance counters), `-Status`, `-Remove` |
 | [`mcp-helper.js`](mcp-helper.js) | Browser-side helper: run it in a signed-in D365 tab to call `/mcp` (used with Claude in Chrome) |
+| [`mcp-run.mjs`](mcp-run.mjs) | Command-line runner: a JSON list of tool calls in one fresh MCP session, Azure CLI token (CHE, cloud) |
 
 For the cloud version (a real `*.operations.dynamics.com` environment with an Entra app and client
 credentials) see [../d365mcp-proxy](../d365mcp-proxy/README.md). Its
@@ -155,6 +156,11 @@ such as [claude-code-d365fo-mcp](https://github.com/axpolik/claude-code-d365fo-m
 `04b07795-8ddb-461a-bbee-02f9e1bf7b46` in **System administration > Setup > Allowed MCP clients**; not tested
 without it. The same proxy works for cloud sandboxes, where that row is required (403 without it).
 
+The server drops an idle MCP session. A proxy that keeps the first `mcp-session-id` then fails every call with
+"MCP session with ID ... could not be found" until Claude Code restarts, unless it re-initializes on that error.
+For a scripted sequence of form calls, [`mcp-run.mjs`](mcp-run.mjs) runs a JSON list of tool calls in one fresh
+session: `node mcp-run.mjs https://<env> calls.json out.json SALESID=000123` (`__SALESID__` in calls.json is replaced).
+
 ## 6. Deep links
 
 MCP returns deep links in `DeepLinks[].Url` with this format (built by `McpDeepLinkUrlBuilder`):
@@ -208,6 +214,18 @@ The save response contains the deep link (`nav=PurchTable`, `nt=mi`, filter `Pur
 `__mcp.flat(text, 'regex')` to list control names; in the form state, the lines grid is at
 `Tab.TabPageDetails.Children.Tab.LineView.Children.Tab.LineViewLines.Children.Grid.LineSpec` (`Columns`, `Rows`).
 
+**Form tool tips** (seen on sales order posting, 2026-10):
+- Buttons inside a menu button (e.g. line **Inventory > Reservation**) appear in the form state only after the
+  menu button is clicked. Searching by label can miss controls; search by control name.
+- `form_select_grid_row` uses 0-based rows. On some list grids it fails even when rows exist; filtering the grid
+  on a key column (a RecId column works too) makes the match the current record.
+- Dialogs can't be closed with `form_close_form`; click their buttons (`OK` / `Cancel` on posting dialogs).
+  Posting dialogs are followed by a "post without printing" message box (`SysBoxForm`, buttons `Ok` / `Cancel`).
+- Postings run in the background ("Processing operation"): read the result from the data a little later before
+  retrying, and note that closing the message box can still post.
+- A sales order in a WHS warehouse can still use picking lists: registration needs a location per line, and the
+  invoice needs quantity **Picked** when no packing slip was posted.
+
 ## 8. Troubleshooting
 
 IIS replaces the bodies of 4xx/5xx responses with its error page. The add-in therefore logs every `/mcp`
@@ -223,6 +241,7 @@ response with status >= 400, including the real error text, to `DEVMcpRoute.log`
 | `opaqueredirect` / "Not signed in" | The browser session expired: sign in to D365 again in that Chrome |
 | `Copy-Item ... being used by another process` | Old script version: IIS must be stopped before the DLL is replaced (current `build.ps1` does this) |
 | A call never returns within 45 s | First OData model build after an AOS restart: use `__mcp.start` / `__mcp.wait` |
+| "MCP session with ID ... could not be found" | The server dropped an idle session: restart the client (proxy), or run calls with `mcp-run.mjs` |
 | Everything stopped working after a platform update, or after `web.config` was replaced (e.g. to point the AOS at another database) | The `DEV-MCP` mapping is gone: run `build.ps1 -Deploy` again |
 
 ## 9. Uninstall
