@@ -1,6 +1,6 @@
 ---
 name: d365-xpp-xref
-description: Find where a Dynamics 365 Finance & Operations (D365 F&O, AX7) X++ element is used by querying the cross-reference database (DYNAMICSXREFDB) instead of searching source files. Use this when the user asks "where is X used", "who calls method Y", "which classes use SalesLine.SalesPrice", "find references", "find all usages", "what extends/implements class Z", "which methods have attribute A", or wants an impact analysis before changing a table field, method, EDT, enum, or class - especially across large models such as ApplicationSuite, where grepping XML is slow and token-heavy.
+description: Find where a Dynamics 365 Finance & Operations (D365 F&O, AX7) X++ element is used by querying the cross-reference database (DYNAMICSXREFDB) instead of searching source files. Use this when the user asks "where is X used", "who calls method Y", "which classes use SalesLine.SalesPrice", "find references", "find all usages", "what extends/implements class Z", "which methods have attribute A", or wants an impact analysis before changing a table field, method, EDT, enum, or class - especially across large models such as ApplicationSuite, where grepping XML is slow and token-heavy. Also use it before writing a Chain of Command extension, to find the existing [ExtensionOf] class of that class, table or form in the user's model and add the new method there instead of creating another extension class.
 ---
 
 # D365 X++ cross references
@@ -16,6 +16,8 @@ Visual Studio's *Find references* reads the cross-reference database that the X+
 3. **Run the reference query**, filtered as narrowly as the question allows (`-SourceModule`, `-SourceType`, `-Kind`). Start with the default `-GroupBy Object`, which returns one row per referencing element and costs the fewest tokens.
 4. **Drill down only if needed:** `-GroupBy Member` for the methods, `-GroupBy None` for every reference with its line and column. Then open just the source files you need.
 5. **Report** the list, and say that it reflects the last build that updated cross references (see Gotchas).
+
+**Before writing a Chain of Command method,** run `-ExtensionsOf` on the class, table or form you extend, filtered to the user's model (`-SourceModule ContosoCustomizations`). If the model already has an `[ExtensionOf]` class for it, add the method to that class instead of creating a second extension class for the same element. Projects usually keep one extension class per element and model.
 
 ## Scripts
 
@@ -35,6 +37,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<skill-dir>/scripts/Fin
 |---|---|
 | `-Target <path>` | Element to find references **to**. Matched exactly, unless it contains `*` or `%` (wildcards). |
 | `-FindPath <pattern>` | Instead of references, list matching element paths and their module, e.g. `'/Tables/SalesLine/Fields/Sales*'`. |
+| `-ExtensionsOf <path>` | Instead of references, list the `[ExtensionOf]` classes of a class, table or form, e.g. `/Classes/SalesLineType`, `/Tables/SalesTable`, `/Forms/SalesTable`. A form path also returns its data source and control extensions; `/Forms/SalesTable*` shows which part each one extends (column `Extends`). Combine with `-SourceModule`. |
 | `-SourceModule <name>` | Only references from code in this module (model), e.g. `ApplicationSuite`, `ContosoCustomizations`. Wildcards allowed. |
 | `-SourceType <segment>` | Only references from this element type: the first path segment, e.g. `Classes`, `Tables`, `Forms`, `DataEntityViews`. |
 | `-Kind <kind>` | Only one reference kind (table below). Default `Any`. |
@@ -67,11 +70,13 @@ For anything else, find the form with `-FindPath '/<Type>/<Object>*'`.
 | `InterfaceImplementation` (3) | Class implements the target interface |
 | `ClassExtended` (4) | Class extends the target class |
 | `Property` (6) | Metadata property reference, e.g. `/Property/IsDelegate` |
-| `Attribute` (7) | Attribute applied, including `ExtensionOf` |
+| `Attribute` (7) | Attribute applied, including `ExtensionOf`. The target is the attribute class (`/Classes/ExtensionOf`), not the extended element |
 | `Tag` (9) | Test tags |
 | `MethodOverride` (10) | Method overrides the target method |
 
 Example: the direct subclasses of a class are `-Target /Classes/RunBase -Kind ClassExtended`; the overrides of one of its methods are `-Target /Classes/RunBase/Methods/dialog -Kind MethodOverride`.
+
+`[ExtensionOf(classStr(SalesLineType))]` is stored as two references on the attribute's line: an `Attribute` reference to `/Classes/ExtensionOf` and a `TypeReference` to `/Classes/SalesLineType`. So `-Target /Classes/SalesLineType -Kind Attribute` finds nothing; use `-ExtensionsOf`, which matches both.
 
 ## Gotchas
 

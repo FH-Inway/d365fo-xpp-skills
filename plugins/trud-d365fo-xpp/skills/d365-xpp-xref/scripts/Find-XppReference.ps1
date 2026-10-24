@@ -4,9 +4,11 @@
     tab-separated report of who references an element.
 
 .DESCRIPTION
-    Two modes:
-      -Target   <path>     find references TO an element path, e.g. /Tables/SalesLine/Fields/SalesPrice
-      -FindPath <pattern>  list element paths that exist in the database (use it to find the exact -Target)
+    Three modes:
+      -Target       <path>     find references TO an element path, e.g. /Tables/SalesLine/Fields/SalesPrice
+      -FindPath     <pattern>  list element paths that exist in the database (use it to find the exact -Target)
+      -ExtensionsOf <path>     list the [ExtensionOf] classes (Chain of Command) of a class, table, form or
+                               other element, e.g. /Classes/SalesLineType or /Tables/SalesTable
 
     Paths and patterns accept * or % as wildcards. A -Target without a wildcard is matched exactly.
     Read-only: the script only runs SELECT statements, with Windows authentication.
@@ -19,6 +21,8 @@
     .\Find-XppReference.ps1 -Target /Classes/SalesLineType/Methods/validateWrite -GroupBy Member
 .EXAMPLE
     .\Find-XppReference.ps1 -FindPath '/Tables/SalesLine/Fields/Sales*'
+.EXAMPLE
+    .\Find-XppReference.ps1 -ExtensionsOf /Classes/SalesLineType -SourceModule ContosoCustomizations
 #>
 [CmdletBinding(DefaultParameterSetName = 'Target')]
 param(
@@ -28,8 +32,12 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = 'FindPath')]
     [string]$FindPath,
 
+    [Parameter(Mandatory = $true, ParameterSetName = 'ExtensionsOf')]
+    [string]$ExtensionsOf,
+
     # Module (model) that contains the referencing code, e.g. ApplicationSuite. Wildcards allowed.
     [Parameter(ParameterSetName = 'Target')]
+    [Parameter(ParameterSetName = 'ExtensionsOf')]
     [string]$SourceModule,
 
     # First path segment of the referencing element, e.g. Classes, Tables, Forms. Wildcards allowed.
@@ -84,6 +92,37 @@ WHERE n.[Path] LIKE @path
 ORDER BY n.[Path];
 "@
     $header = "Path`tModule"
+}
+elseif ($PSCmdlet.ParameterSetName -eq 'ExtensionsOf') {
+    # [ExtensionOf(classStr(X))] is stored as two references on the attribute's line: an Attribute reference
+    # to /Classes/ExtensionOf and a TypeReference to the extended element X. Match both on the same line.
+    $targetWhere = 't.[Path] = @target'
+    $cmdParams['@target'] = $ExtensionsOf
+    if (Test-Wildcard $ExtensionsOf) {
+        # A data source or control extension references both the form and its part, so /Forms/SalesTable already
+        # finds it; /Forms/SalesTable* also shows which part it extends (Extends = the most specific path).
+        $targetWhere = 't.[Path] LIKE @target'
+        $cmdParams['@target'] = ConvertTo-LikePattern $ExtensionsOf
+    }
+    $moduleWhere = ''
+    if ($SourceModule) {
+        $moduleWhere = 'AND m.[Module] LIKE @module'
+        $cmdParams['@module'] = ConvertTo-LikePattern $SourceModule
+    }
+    $sql = @"
+SET NOCOUNT ON;
+SELECT TOP (@top) s.[Path], m.[Module], MIN(r.[Line]) AS Line, MAX(t.[Path]) AS Extends
+FROM dbo.[Names] t
+JOIN dbo.[References] r ON r.[TargetId] = t.[Id] AND r.[Kind] = 2
+JOIN dbo.[Names] s ON s.[Id] = r.[SourceId]
+LEFT JOIN dbo.[Modules] m ON m.[Id] = s.[ModuleId]
+WHERE $targetWhere $moduleWhere
+  AND EXISTS (SELECT 1 FROM dbo.[References] a JOIN dbo.[Names] an ON an.[Id] = a.[TargetId]
+              WHERE a.[SourceId] = r.[SourceId] AND a.[Kind] = 7 AND a.[Line] = r.[Line] AND an.[Path] = '/Classes/ExtensionOf')
+GROUP BY s.[Path], m.[Module]
+ORDER BY m.[Module], s.[Path];
+"@
+    $header = "ExtensionClass`tModule`tLine`tExtends"
 }
 else {
     if (Test-Wildcard $Target) {
@@ -179,6 +218,11 @@ finally {
 
 if ($PSCmdlet.ParameterSetName -eq 'FindPath') {
     Write-Output "Paths like '$FindPath': $($rows.Count) row(s)$(if ($rows.Count -ge $Top) { " (limited by -Top $Top)" })"
+}
+elseif ($PSCmdlet.ParameterSetName -eq 'ExtensionsOf') {
+    $filterText = ''
+    if ($SourceModule) { $filterText = " [module=$SourceModule]" }
+    Write-Output "[ExtensionOf] classes of '$ExtensionsOf'$($filterText): $($rows.Count) row(s)$(if ($rows.Count -ge $Top) { " (limited by -Top $Top)" })"
 }
 else {
     $filters = @()

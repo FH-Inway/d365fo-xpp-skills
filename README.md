@@ -5,7 +5,8 @@ A Claude plugin marketplace for Microsoft Dynamics 365 Finance and Operations (D
 | Plugin | Skills | What it does |
 |---|---|---|
 | [`trud-d365fo-xpp`](plugins/trud-d365fo-xpp) | `d365-xpp-compile` | After Claude changes X++ elements, it adds them to the Visual Studio project, compiles the project with `xppc`, and analyses and fixes the compile errors. |
-| | `d365-xpp-xref` | Answers "where is this used?" (callers, field usages, subclasses, overrides) by querying the local cross-reference database `DYNAMICSXREFDB`, instead of searching source files. |
+| | `d365-xpp-xref` | Answers "where is this used?" (callers, field usages, subclasses, overrides, existing `[ExtensionOf]` classes) by querying the local cross-reference database `DYNAMICSXREFDB`, instead of searching source files. |
+| | `d365-xpp-trace-parser` | Reads a trace imported into a Trace Parser database: which SQL statement wrote a value and with which bind values, the X++ call stack of any statement, and which methods ran in what order, so Claude can link the trace to the X++ code. |
 
 ## Install in Claude Code
 
@@ -14,13 +15,13 @@ A Claude plugin marketplace for Microsoft Dynamics 365 Finance and Operations (D
 /plugin install trud-d365fo-xpp@trudax-d365fo
 ```
 
-The compile skill then runs automatically after X++ changes, and the cross-reference skill when you ask where an element is used. You can also invoke them directly as `/trud-d365fo-xpp:d365-xpp-compile` and `/trud-d365fo-xpp:d365-xpp-xref`.
+The compile skill then runs automatically after X++ changes, the cross-reference skill when you ask where an element is used, and the trace skill when you ask Claude to read an imported trace. You can also invoke them directly as `/trud-d365fo-xpp:d365-xpp-compile`, `/trud-d365fo-xpp:d365-xpp-xref` and `/trud-d365fo-xpp:d365-xpp-trace-parser`.
 
 To get new versions, run `/plugin marketplace update trudax-d365fo`, then update the plugin from `/plugin`. From a terminal, run `claude plugin marketplace update trudax-d365fo`, then `claude plugin update trud-d365fo-xpp@trudax-d365fo`.
 
 ## Requirements
 
-A Windows D365FO development VM (with `AosService\PackagesLocalDirectory\bin\xppc.exe`) and Windows PowerShell 5.1. The cross-reference skill also needs read access to the `DYNAMICSXREFDB` database on the VM's SQL Server. The plugin's [README](plugins/trud-d365fo-xpp/README.md) describes exactly what the scripts run, write, and change.
+A Windows D365FO development VM (with `AosService\PackagesLocalDirectory\bin\xppc.exe`) and Windows PowerShell 5.1. The cross-reference skill also needs read access to the `DYNAMICSXREFDB` database on the VM's SQL Server, and the trace skill read access to the Trace Parser database the trace was imported into. The plugin's [README](plugins/trud-d365fo-xpp/README.md) describes exactly what the scripts run, write, and change.
 
 ## Repository layout
 
@@ -32,6 +33,7 @@ plugins/trud-d365fo-xpp/                  the plugin
   skills/d365-xpp-compile/scripts/        PowerShell scripts the skill runs
   skills/d365-xpp-compile/references/     compile error reference
   skills/d365-xpp-xref/                   cross-reference skill and its query script
+  skills/d365-xpp-trace-parser/           trace skill, its query scripts, and a schema reference
 notes/                                    general notes, not part of the plugin
 ```
 
