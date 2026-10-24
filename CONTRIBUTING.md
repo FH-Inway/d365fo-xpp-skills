@@ -69,7 +69,8 @@ description: <What it does, in one sentence.> Use this when <the situations: wha
 The scripts run on the user's D365FO development VM in **Windows PowerShell 5.1**.
 
 - **Language:** PowerShell 5.1 syntax only: no `?:`, `??`, `?.`, or `&&`/`||` pipeline chains.
-- **Encoding:** keep `.ps1` files ASCII-only. PowerShell 5.1 reads files without a BOM as ANSI, so non-ASCII characters break. `.gitattributes` checks `.ps1` files out with CRLF.
+- **Encoding:** keep `.ps1` files ASCII-only. PowerShell 5.1 reads files without a BOM as ANSI, so non-ASCII characters break.
+- **Line endings:** `.gitattributes` has one rule, `* text=auto eol=lf`, so every file is stored and checked out with LF. PowerShell 5.1 runs LF scripts fine. A script that writes files Visual Studio reads (`.rnrproj`, `.sln`, element XML) must set CRLF itself, as `XppCommon.ps1` and `Add-XppProjectItem.ps1` do, never rely on its own line endings. Don't add other line-ending rules: the directory scanner refuses any `text`, `eol`, `crlf` or `binary=` rule whose line doesn't have `eol=lf` as its only eol setting (`* text=auto` and `*.ps1 text eol=crlf` were refused), and then scans nothing. Rules that only switch line endings off (`-text`) are accepted; `.bat`/`.cmd` files would need `*.bat -text` and CRLF content.
 - **Output:** print a short, structured report that Claude can act on, and return meaningful exit codes (for example 0 = OK, 1 = problems found, 2 = setup failure). Don't make Claude read raw logs.
 - **Local only:** no network calls, telemetry, downloads, package installs (`npm`, `pip`, `Install-Module`), admin rights, or service restarts. Write scratch output under `%TEMP%`, never into `PackagesLocalDirectory\<Package>\bin`.
 - **Shared code:** keep each skill self-contained. If several skills need the same helper, the whole plugin folder is installed, so a script can dot-source another skill's file with a path relative to `$PSScriptRoot`. Say so in both skills.
