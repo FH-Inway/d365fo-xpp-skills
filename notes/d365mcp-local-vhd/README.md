@@ -55,6 +55,22 @@ Not a problem on a VHD:
   `EnableMcpTokenAppIdValidation`, which is off by default.
 - The `mcp.tools` scope check only applies to bearer tokens.
 
+**Older platform builds list only the form tools.** On platform `7.0.7996.33`, `tools/list` returned the 13 `form_*`
+tools only: the data and API tools are behind flights (`McpFlightsODataTools`, `McpSqlDataToolsFlight`,
+`McpActionsFlight`). Calling `data_find_entities_sql` by name still worked, but clients that build their tool list
+from `tools/list` (Claude Code, Copilot Studio) never offer it. On a development box, enable the flights in the AOS
+database and restart IIS; `tools/list` then returns all 21 tools:
+
+```sql
+INSERT INTO SYSFLIGHTING (FLIGHTNAME, ENABLED, FLIGHTSERVICEID)
+SELECT f.NAME, 1, 12719367
+FROM (VALUES ('McpFlightsODataTools'), ('McpSqlDataToolsFlight'), ('McpActionsFlight')) f(NAME)
+WHERE NOT EXISTS (SELECT 1 FROM SYSFLIGHTING s WHERE s.FLIGHTNAME = f.NAME AND s.FLIGHTSERVICEID = 12719367);
+```
+
+The flight names come from the platform's `McpFlights` class and the `McpSqlDataToolsFlight` class in
+`Microsoft.Dynamics.AX.Framework.Services.Platform.dll`. To undo, delete the three rows and restart IIS.
+
 Why the "standard" sign-in fails: MCP clients (VS Code, Copilot Studio) discover OAuth through
 `/.well-known/oauth-protected-resource`. On a VHD, IIS sends anonymous requests to the WS-Fed sign-in, and the
 metadata endpoint is behind a flight that is off. The `onebox.dynamics.com` host is also not a resource in
@@ -64,7 +80,8 @@ Entra ID.
 
 - A onebox / VHD or a cloud-hosted Tier1 (CHE) with the AOS in IIS. `build.ps1` finds the webroot in
   `C:`, `J:` or `K:\AOSService\webroot`; pass `-Webroot` otherwise. Tested on platform `7.0.8199.55`
-  (ApplicationSuite `10.40.3825`). `build.ps1` stops with a clear message if the platform has no MCP server.
+  (ApplicationSuite `10.40.3825`) on a onebox and on platform `7.0.7996.33` on a CHE (see the flights note in
+  section 2). `build.ps1` stops with a clear message if the platform has no MCP server.
 - Feature management: **Dynamics 365 ERP Model Context Protocol server** enabled (it is by default). If it is
   off, `/mcp` returns 403.
 - An elevated PowerShell. The script uses Visual Studio's C# compiler (found with `vswhere`) or falls back to
@@ -135,11 +152,18 @@ Claude calls the MCP tools from a D365 tab with the **Claude in Chrome** `javasc
 Things to know:
 
 - **45-second limit per `javascript_tool` call.** The first `data_*` call after an AOS restart builds the OData
-  model and takes about 80-90 s on a onebox; later calls take milliseconds. Use
-  `__mcp.start('k', tool, args)` and then call `await __mcp.wait('k')` until `state` is `done`.
+  model and takes about 80-90 s on a onebox; later calls take milliseconds. Some form actions run much longer
+  (cancelling the work of a large wave took 2.5 minutes). Use `__mcp.start('k', tool, args)` and then call
+  `await __mcp.wait('k')` (25 s by default) until `state` is `done`. Keep each wait short: while the D365 page is
+  busy it can delay timers, and a 35-second wait was cut off at 45 s. The server finishes the action even when
+  the browser call is cut off; for long actions it is often simpler to watch the result in the database.
 - **The Chrome extension redacts tool output** that looks like URLs with query strings, base64 or session
-  keys ("[BLOCKED: ...]"). Return only the fields you need, use `__mcp.clean()` for text, and rebuild deep
-  links yourself (section 6).
+  keys ("[BLOCKED: ...]"), and sometimes plain identifiers too (a grid named `GridView`). Return only the fields
+  you need, use `__mcp.clean()` for text, `__mcp.controls(text, 'Grid|Button')` or `__mcp.spell(name)` for
+  control names, and rebuild deep links yourself (section 6).
+- **Buttons on action pane tabs that aren't open** aren't in the form state that `form_open_menu_item`
+  returns (for example **Process** on the Waves form). Find them with `form_find_controls` and click them by
+  name.
 - **Form tools are stateful** per MCP session: one form call at a time, and finish with `form_close_form`.
   `form_save_form` says "Persistence could not be independently verified", so confirm the result with a
   `data_find_entities_sql` query.
@@ -153,8 +177,26 @@ Things to know:
 Claude Code can then use it as a normal stdio MCP server, without Chrome or the 45 s limit, through a token proxy
 such as [claude-code-d365fo-mcp](https://github.com/axpolik/claude-code-d365fo-mcp) (`D365_MCP_URL` =
 `https://<env>/mcp`, `D365_RESOURCE` = `https://<env>`). Tested with the Azure CLI app
-`04b07795-8ddb-461a-bbee-02f9e1bf7b46` in **System administration > Setup > Allowed MCP clients**; not tested
-without it. The same proxy works for cloud sandboxes, where that row is required (403 without it).
+`04b07795-8ddb-461a-bbee-02f9e1bf7b46` in **System administration > Setup > Allowed MCP clients**, and on a
+second CHE (platform `7.0.7996.33`) also without that row. The same proxy works for cloud sandboxes, where the row
+is required (403 without it).
+
+Setting it up on a CHE:
+
+- **Sign in to Azure CLI as the D365 user:** `az login --tenant <your-domain> --allow-no-subscriptions`. D365 users
+  often have no Azure subscription, and without `--allow-no-subscriptions` the login stops there. On Windows the
+  sign-in uses an account picker window; if it doesn't appear (for example in a terminal embedded in an app), run
+  the command in a normal PowerShell window or add `--use-device-code`. Check with
+  `az account get-access-token --resource https://<env> --query expiresOn -o tsv`.
+- **Register the proxy with an explicit `PATH`:** a client started before Node.js or Azure CLI was installed
+  doesn't see them on its `PATH`, and the proxy then fails to start ("Connection closed"). For example:
+  `claude mcp add d365 --scope user -e D365_MCP_URL=https://<env>/mcp -e D365_RESOURCE=https://<env>
+  -e "PATH=C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin;C:\Program Files\nodejs;C:\Windows\system32;C:\Windows"
+  -- "C:\Program Files\nodejs\node.exe" C:\Tools\claude-code-d365fo-mcp\mcp-dynamics365fo-proxy.mjs`.
+  `claude mcp get d365` should then report **Connected**.
+- **If form calls through the proxy hang,** use the browser approach above for that work: it calls the same
+  server. On one CHE the first `form_open_menu_item` through the proxy never returned, while the same call from
+  the browser took 1 second.
 
 The server drops an idle MCP session. A proxy that keeps the first `mcp-session-id` then fails every call with
 "MCP session with ID ... could not be found" until Claude Code restarts, unless it re-initializes on that error.
@@ -238,6 +280,7 @@ response with status >= 400, including the real error text, to `DEVMcpRoute.log`
 | 404 HTML page, IIS log `404 0 0`, log has no `Mapped /mcp` | DLL not in `webroot\bin\Controllers`, or IIS not restarted |
 | 500, log: "...is not a custom counter..." | Performance counter category missing: run `build.ps1 -Deploy` |
 | 403 | Feature **Dynamics 365 ERP Model Context Protocol server** is off in Feature management |
+| `tools/list` returns only the 13 `form_*` tools; `data_*` calls by name still work | Older platform build: the data and API tools are behind flights. Enable them as in section 2 |
 | `opaqueredirect` / "Not signed in" | The browser session expired: sign in to D365 again in that Chrome |
 | `Copy-Item ... being used by another process` | Old script version: IIS must be stopped before the DLL is replaced (current `build.ps1` does this) |
 | A call never returns within 45 s | First OData model build after an AOS restart: use `__mcp.start` / `__mcp.wait` |

@@ -3,7 +3,7 @@
 General notes and background material on D365FO development with Claude: ideas, research, drafts, and links. They aren't necessarily about the plugin.
 
 - [d365mcp-proxy](d365mcp-proxy/README.md): local proxy that gives Claude Code access to the D365 ERP MCP server of a cloud environment with an app-only (client credentials) Entra app.
-- [d365mcp-local-vhd](d365mcp-local-vhd/README.md): enable the built-in D365 ERP MCP server (`/mcp`) on a local VHD or cloud-hosted Tier1 (AOS in IIS) and call it from Claude through the signed-in browser session (or, on a CHE, an Azure CLI token), without an Entra app.
+- [d365mcp-local-vhd](d365mcp-local-vhd/README.md): enable the built-in D365 ERP MCP server (`/mcp`) on a local VHD or cloud-hosted Tier1 (AOS in IIS) and call it from Claude through the signed-in browser session (or, on a CHE, an Azure CLI token), without an Entra app. Includes the flights that unhide the data and API tools on older platform builds, and Azure CLI setup tips for a CHE.
 - [xpp-html-extensible-controls](xpp-html-extensible-controls/README.md): put HTML, CSS and JavaScript into an X++ form with an extensible control and connect it to X++ in both directions: templates, rules, deployment, troubleshooting and testing.
 
 This folder isn't part of the `trud-d365fo-xpp` plugin:

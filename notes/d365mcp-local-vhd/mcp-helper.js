@@ -4,11 +4,13 @@
 //
 //   await __mcp.call('data_find_entities_sql', { sqlExpression: "SELECT ...", companyId: 'USMF' })
 //       -> { isError, text } | { httpStatus } | { rpcError }
-//   __mcp.start('key', toolName, args); await __mcp.wait('key')   // calls that may take longer than ~40 s
+//   __mcp.start('key', toolName, args); await __mcp.wait('key')   // calls that may take longer than ~25 s
 //   __mcp.json(result.text)          // parse the tool's JSON text (null if it is not JSON)
 //   __mcp.flat(result.text, 'regex')  // form tools: FormState as "Type/ControlName: Label = Value" lines
+//   __mcp.controls(result.text, 'Grid|Button')  // form tools: control names by type, spelled out (see spell)
 //   __mcp.links(result.text)          // deep links as query-parameter objects
 //   __mcp.clean(text)                 // replaces URLs with <link> (the Chrome extension redacts them)
+//   __mcp.spell('GridView')           // 'G r i d V i e w': the extension also redacts some plain names
 window.__mcp = {
     sid: null,
     nextId: 10,
@@ -59,8 +61,9 @@ window.__mcp = {
         return this.last;
     },
 
-    // The first data_* call after an AOS restart builds the OData model (~1.5 min on a onebox), longer than
-    // one javascript_tool call allows. Start it, then call wait() until state is 'done'.
+    // The first data_* call after an AOS restart builds the OData model (~1.5 min on a onebox), and some form
+    // actions run for minutes; one javascript_tool call is cut off at 45 s. Start the call, then call wait()
+    // until state is 'done'. Keep each wait short: the D365 page can delay timers while it is busy.
     start(key, name, args) {
         const entry = { state: 'running', started: Date.now() };
         this.res[key] = entry;
@@ -69,7 +72,7 @@ window.__mcp = {
             e => Object.assign(entry, { state: 'failed', error: String(e) }));
     },
 
-    async wait(key, maxMs = 38000) {
+    async wait(key, maxMs = 25000) {
         const t0 = Date.now();
         while (this.res[key] && this.res[key].state === 'running' && Date.now() - t0 < maxMs) {
             await new Promise(r => setTimeout(r, 1000));
@@ -83,6 +86,37 @@ window.__mcp = {
 
     clean(text) {
         return String(text || '').replace(/https?:\/\/\S+/g, '<link>');
+    },
+
+    // The Chrome extension sometimes redacts plain identifiers as "[BLOCKED: Base64 encoded data]" (a grid
+    // named GridView, for example). Spelled out with spaces they get through.
+    spell(name) {
+        return String(name).split('').join(' ');
+    },
+
+    // Form tools: the names of the controls in FormState.Form whose type matches the regex (Grid, Button,
+    // MenuItemButton, Input...), as { type, name, label, spelled }.
+    controls(text, typeFilter) {
+        const j = this.json(text);
+        if (!j || !j.FormState) return [];
+        const re = typeFilter ? new RegExp('^(' + typeFilter + ')$', 'i') : null;
+        const out = [];
+        const walk = (node, depth) => {
+            if (!node || typeof node !== 'object' || depth > 12) return;
+            for (const [type, group] of Object.entries(node)) {
+                if (group && typeof group === 'object' && (!re || re.test(type))) {
+                    for (const [name, v] of Object.entries(group)) {
+                        if (v && typeof v === 'object' && /^[A-Za-z_][\w ]*$/.test(name) && !/^(Children|Columns|Rows)$/.test(name)) {
+                            out.push({ type, name, label: this.clean(v.Label || v.Text || ''), spelled: this.spell(name) });
+                        }
+                    }
+                }
+                if (group && typeof group === 'object') walk(group, depth + 1);
+            }
+        };
+        walk(j.FormState.Form, 0);
+        const seen = new Set();
+        return out.filter(c => { const k = c.type + '/' + c.name; if (seen.has(k)) return false; seen.add(k); return true; });
     },
 
     links(text) {
