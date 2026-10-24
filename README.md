@@ -10,6 +10,14 @@ A Claude plugin marketplace for Microsoft Dynamics 365 Finance and Operations (D
 
 ## Install in Claude Code
 
+In Claude Code 2.1.275 or later:
+
+```
+/plugin install trud-d365fo-xpp --marketplace TrudAX/d365fo-xpp-skills
+```
+
+In older versions, add the marketplace first:
+
 ```
 /plugin marketplace add TrudAX/d365fo-xpp-skills
 /plugin install trud-d365fo-xpp@trudax-d365fo

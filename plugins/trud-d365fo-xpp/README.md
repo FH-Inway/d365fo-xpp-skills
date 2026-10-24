@@ -2,6 +2,21 @@
 
 Skills that help Claude develop in X++ for Microsoft Dynamics 365 Finance and Operations (D365FO) on a standard development VM.
 
+## Install
+
+In Claude Code 2.1.275 or later:
+
+```
+/plugin install trud-d365fo-xpp --marketplace TrudAX/d365fo-xpp-skills
+```
+
+In older versions, add the marketplace first:
+
+```
+/plugin marketplace add TrudAX/d365fo-xpp-skills
+/plugin install trud-d365fo-xpp@trudax-d365fo
+```
+
 ## Skills
 
 ### `d365-xpp-compile`
