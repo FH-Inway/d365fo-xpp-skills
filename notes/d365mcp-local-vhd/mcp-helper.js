@@ -1,5 +1,6 @@
-// Helper for calling the D365 ERP MCP server (/mcp) from a signed-in D365 browser tab, for example with the
-// Claude in Chrome javascript_tool. Run the whole file once per tab; it defines window.__mcp.
+// Helper for calling the D365 ERP MCP server (/mcp) from a signed-in D365 browser tab, for example with Claude
+// in Chrome's javascript_tool or VS Code's built-in browser tools. Run the whole file once per tab; it defines
+// window.__mcp.
 // It only calls /mcp on the page's own AOS (same origin), with the browser's existing sign-in.
 //
 //   await __mcp.call('data_find_entities_sql', { sqlExpression: "SELECT ...", companyId: 'USMF' })
@@ -28,7 +29,7 @@ window.__mcp = {
     async init() {
         this.sid = null;
         const r = await this.post({ jsonrpc: '2.0', id: 1, method: 'initialize',
-            params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'claude-in-chrome', version: '1' } } });
+            params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'd365-browser-helper', version: '1' } } });
         if (r.status !== 200) throw new Error(`initialize returned HTTP ${r.status} (is /mcp deployed? run route\\build.ps1 -Status)`);
         this.sid = r.sessionId;
         await this.post({ jsonrpc: '2.0', method: 'notifications/initialized' });
@@ -62,7 +63,7 @@ window.__mcp = {
     },
 
     // The first data_* call after an AOS restart builds the OData model (~1.5 min on a onebox), and some form
-    // actions run for minutes; one javascript_tool call is cut off at 45 s. Start the call, then call wait()
+    // actions run for minutes. Browser hosts can time out long calls, so start the call and poll with wait()
     // until state is 'done'. Keep each wait short: the D365 page can delay timers while it is busy.
     start(key, name, args) {
         const entry = { state: 'running', started: Date.now() };

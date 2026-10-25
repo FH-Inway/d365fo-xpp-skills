@@ -67,6 +67,7 @@ function Set-McpHandler([bool]$enable) {
     $handler = $handlers.SelectSingleNode("add[@name='$handlerName']")
 
     if ($enable -and -not $handler) {
+        "Adding the '$handlerName' handler mapping to $webConfig"
         $handler = $xml.CreateElement('add')
         $handler.SetAttribute('name', $handlerName)
         $handler.SetAttribute('path', 'mcp')
@@ -77,17 +78,26 @@ function Set-McpHandler([bool]$enable) {
         $indent = $handlers.InsertAfter($xml.CreateWhitespace($webApi.PreviousSibling.Value), $webApi)
         $handlers.InsertAfter($handler, $indent) | Out-Null
     } elseif (-not $enable -and $handler) {
+        "Removing the '$handlerName' handler mapping from $webConfig"
         if ($handler.PreviousSibling.NodeType -eq 'Whitespace') { $handlers.RemoveChild($handler.PreviousSibling) | Out-Null }
         $handlers.RemoveChild($handler) | Out-Null
     } else {
-        'web.config already up to date'
+        "No web.config change needed; the '$handlerName' mapping is already $(if ($enable) { 'present' } else { 'absent' })"
         return
     }
 
     $backup = "$webConfig.DEVMcpBridge.bak"
-    if (-not (Test-Path $backup)) { Copy-Item $webConfig $backup }
+    if (Test-Path $backup) {
+        "Backup already exists; leaving it unchanged: $backup"
+    } else {
+        "Creating web.config backup: $backup"
+        Copy-Item $webConfig $backup
+        if (-not (Test-Path $backup)) { throw "web.config backup was not created: $backup" }
+        'web.config backup created successfully'
+    }
+    "Saving updated web.config: $webConfig"
     $xml.Save($webConfig)
-    "web.config updated (backup: $backup)"
+    'web.config updated successfully'
 }
 
 # The MCP controller's [ServiceApiCounterFilter] writes to the "Microsoft Dynamics AX MCP Server" performance
@@ -129,6 +139,7 @@ if (-not $Remove) {
     if (-not (Select-String -Path $platformDll -Pattern 'McpServerController' -SimpleMatch -Quiet)) {
         throw "This platform version has no MCP server (McpServerController not found in $platformDll)."
     }
+    "Preparing local build output: $out"
     New-Item -ItemType Directory -Force (Split-Path $out) | Out-Null
     $refs = @(
         "$fx\mscorlib.dll", "$fx\System.dll", "$fx\System.Core.dll", "$fx\System.Net.Http.dll",
@@ -142,31 +153,47 @@ if (-not $Remove) {
     ) | Where-Object { Test-Path $_ } | ForEach-Object { "/r:$_" }
 
     $csc = Find-Csc
+    "Compiling route add-in with $csc"
     & $csc /nologo /noconfig /nostdlib+ /target:library /optimize+ "/out:$out" @refs $source
     if ($LASTEXITCODE -ne 0) { throw "csc failed ($LASTEXITCODE): $csc" }
-    "Built $out"
+    "Build succeeded: $out"
 }
 
 # The AOS (w3wp) keeps the loaded DLL locked, so stop IIS before replacing or deleting it.
 if ($Deploy) {
     Assert-Admin
+    "Deploying MCP route to $Webroot"
+    'Stopping IIS before updating the AOS webroot'
     iisreset /stop
     try {
+        "Copying route DLL to $target"
         Copy-Item $out $target -Force
+        'Updating the web.config handler mapping'
         Set-McpHandler $true
+        'Checking and creating MCP performance counters if needed'
         Install-McpPerfCounters
     }
-    finally { iisreset /start }
+    finally {
+        'Starting IIS'
+        iisreset /start
+    }
     "Deployed to $target. Open the AOS once in the browser, then check: build.ps1 -Status"
 }
 
 if ($Remove) {
     Assert-Admin
+    "Removing MCP route from $Webroot"
+    'Stopping IIS before updating the AOS webroot'
     iisreset /stop
     try {
+        "Removing route DLL from $target if present"
         Remove-Item $target -ErrorAction SilentlyContinue
+        'Removing the web.config handler mapping'
         Set-McpHandler $false
     }
-    finally { iisreset /start }
+    finally {
+        'Starting IIS'
+        iisreset /start
+    }
     'Removed (the performance counter category is left in place; it is harmless).'
 }
